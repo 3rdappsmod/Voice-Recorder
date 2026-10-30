@@ -33,6 +33,7 @@ import org.fossify.voicerecorder.extensions.getFormattedFilename
 import org.fossify.voicerecorder.extensions.updateWidgets
 import org.fossify.voicerecorder.helpers.CANCEL_RECORDING
 import org.fossify.voicerecorder.helpers.EXTENSION_MP3
+import org.fossify.voicerecorder.helpers.EXTENSION_WAV
 import org.fossify.voicerecorder.helpers.GET_RECORDER_INFO
 import org.fossify.voicerecorder.helpers.RECORDER_RUNNING_NOTIF_ID
 import org.fossify.voicerecorder.helpers.RECORDING_PAUSED
@@ -44,6 +45,7 @@ import org.fossify.voicerecorder.models.Events
 import org.fossify.voicerecorder.recorder.MediaRecorderWrapper
 import org.fossify.voicerecorder.recorder.Mp3Recorder
 import org.fossify.voicerecorder.recorder.Recorder
+import org.fossify.voicerecorder.recorder.WavRecorder
 import org.greenrobot.eventbus.EventBus
 import java.io.File
 import java.util.Timer
@@ -108,10 +110,10 @@ class RecorderService : Service() {
         resultUri = null
 
         try {
-            recorder = if (recordMp3()) {
-                Mp3Recorder(this)
-            } else {
-                MediaRecorderWrapper(this)
+            recorder = when (config.extension) {
+                EXTENSION_MP3 -> Mp3Recorder(this)
+                EXTENSION_WAV -> WavRecorder(this)
+                else -> MediaRecorderWrapper(this)
             }
 
             if (isRPlus()) {
@@ -119,14 +121,20 @@ class RecorderService : Service() {
                 createSAFFileSdk30(recordingPath)
                 resultUri = fileUri
                 contentResolver.openFileDescriptor(fileUri, "w")!!
-                    .use { recorder?.setOutputFile(it) }
+                    .use { descriptor ->
+                        recorder?.setOutputFile(descriptor)
+                        recorder?.setHeaderFile(recordingPath)
+                    }
             } else if (isPathOnSD(recordingPath)) {
                 var document = getDocumentFile(recordingPath.getParentPath())
                 document = document?.createFile("", recordingPath.getFilenameFromPath())
                 check(document != null) { "Failed to create document on SD Card" }
                 resultUri = document.uri
                 contentResolver.openFileDescriptor(document.uri, "w")!!
-                    .use { recorder?.setOutputFile(it) }
+                    .use { descriptor ->
+                        recorder?.setOutputFile(descriptor)
+                        recorder?.setHeaderFile(recordingPath)
+                    }
             } else {
                 recorder?.setOutputFile(recordingPath)
                 resultUri = FileProvider.getUriForFile(
@@ -324,9 +332,5 @@ class RecorderService : Service() {
 
     private fun broadcastStatus() {
         EventBus.getDefault().post(Events.RecordingStatus(status))
-    }
-
-    private fun recordMp3(): Boolean {
-        return config.extension == EXTENSION_MP3
     }
 }

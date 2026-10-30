@@ -3,8 +3,9 @@
     <string name="app_name">Fossify Voice Recorder</string>
     <string name="m4a">m4a</string>
     <string name="mp3">mp3</string>
-    <string name="ogg">ogg</string>
-    <string name="ogg_opus">ogg (Opus)</string>
+    <string name="aac">aac</string>
+    <string name="wav">wav</string>
+    <string name="wav_lossless">wav (Lossless)</string>
     <string name="bitrate_value">%d kbps</string>
     <string name="sampling_rate_value">%d Hz</string>
 </resources>

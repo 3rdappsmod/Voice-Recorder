@@ -14,7 +14,18 @@ const val CANCEL_RECORDING = PATH + "CANCEL_RECORDING"
 
 const val EXTENSION_M4A = 0
 const val EXTENSION_MP3 = 1
-const val EXTENSION_OGG = 2
+
+// 2 was used by the removed OGG/Opus option and is intentionally left unused,
+// so that existing preferences can be migrated to a supported format.
+const val EXTENSION_WAV = 3
+const val EXTENSION_AAC = 4
+
+const val DEFAULT_EXTENSION = EXTENSION_M4A
+
+fun isValidExtension(extension: Int) = extension == EXTENSION_M4A ||
+        extension == EXTENSION_MP3 ||
+        extension == EXTENSION_WAV ||
+        extension == EXTENSION_AAC
 
 val BITRATES_MP3 = arrayListOf(
     8000, 16000, 24000, 32000, 64000, 96000, 128000, 160000, 192000, 256000, 320000
@@ -22,29 +33,32 @@ val BITRATES_MP3 = arrayListOf(
 val BITRATES_M4A = arrayListOf(
     8000, 14000, 24000, 28000, 32000, 64000, 96000, 128000, 160000, 192000, 288000
 )
-val BITRATES_OPUS = arrayListOf(
-    8000, 16000, 24000, 32000, 64000, 96000, 128000, 160000, 192000, 256000, 320000
+val BITRATES_AAC = arrayListOf(
+    8000, 14000, 24000, 28000, 32000, 64000, 96000, 128000, 160000, 192000, 288000
 )
 val BITRATES = mapOf(
     EXTENSION_M4A to BITRATES_M4A,
     EXTENSION_MP3 to BITRATES_MP3,
-    EXTENSION_OGG to BITRATES_OPUS
+    EXTENSION_AAC to BITRATES_AAC
 )
 const val DEFAULT_BITRATE = 96000
 
 val SAMPLING_RATES_MP3 = arrayListOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
-val SAMPLING_RATES_M4A = arrayListOf(11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
-val SAMPLING_RATES_OPUS = arrayListOf(8000, 12000, 16000, 24000, 48000)
+val SAMPLING_RATES_M4A = arrayListOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
+val SAMPLING_RATES_AAC = arrayListOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
+val SAMPLING_RATES_WAV = arrayListOf(8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000)
 val SAMPLING_RATES = mapOf(
     EXTENSION_M4A to SAMPLING_RATES_M4A,
     EXTENSION_MP3 to SAMPLING_RATES_MP3,
-    EXTENSION_OGG to SAMPLING_RATES_OPUS
+    EXTENSION_AAC to SAMPLING_RATES_AAC,
+    EXTENSION_WAV to SAMPLING_RATES_WAV
 )
 const val DEFAULT_SAMPLING_RATE = 48000
 
 // sampling rate -> [min bitrate, max bitrate]
 // according to https://redmine.digispot.ru/projects/support-eng/wiki/Recommended_Sampling_Rate_and_Bitrate_Combinations_for_AAC_codec
 val SAMPLING_RATE_BITRATE_LIMITS_M4A = mapOf(
+    8000 to arrayListOf(8000, 15999),
     11025 to arrayListOf(8000, 15999),
     12000 to arrayListOf(8000, 15999),
     16000 to arrayListOf(8000, 31999),
@@ -68,20 +82,13 @@ val SAMPLING_RATE_BITRATE_LIMITS_MP3 = mapOf(
     48000 to arrayListOf(32000, 320000)
 )
 
-// OPUS has only recommendations for bitrate, no limits: https://www.rfc-editor.org/rfc/rfc7587#section-3.1.1
-// only minimum value is set according to them
-val SAMPLING_RATE_BITRATE_LIMITS_OPUS = mapOf(
-    8000 to arrayListOf(8000, 320000),
-    12000 to arrayListOf(16000, 320000),
-    16000 to arrayListOf(28000, 320000),
-    24000 to arrayListOf(48000, 320000),
-    48000 to arrayListOf(64000, 320000)
-)
+// ADTS uses the same AAC codec as M4A, so the recommended combinations are identical
+val SAMPLING_RATE_BITRATE_LIMITS_AAC = SAMPLING_RATE_BITRATE_LIMITS_M4A
 
 val SAMPLING_RATE_BITRATE_LIMITS = mapOf(
     EXTENSION_M4A to SAMPLING_RATE_BITRATE_LIMITS_M4A,
     EXTENSION_MP3 to SAMPLING_RATE_BITRATE_LIMITS_MP3,
-    EXTENSION_OGG to SAMPLING_RATE_BITRATE_LIMITS_OPUS
+    EXTENSION_AAC to SAMPLING_RATE_BITRATE_LIMITS_AAC
 )
 
 const val RECORDING_RUNNING = 0

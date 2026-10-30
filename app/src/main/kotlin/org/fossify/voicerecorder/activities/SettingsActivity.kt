@@ -32,10 +32,12 @@ import org.fossify.voicerecorder.extensions.hasRecordings
 import org.fossify.voicerecorder.extensions.launchFolderPicker
 import org.fossify.voicerecorder.helpers.BITRATES
 import org.fossify.voicerecorder.helpers.DEFAULT_BITRATE
+import org.fossify.voicerecorder.helpers.DEFAULT_EXTENSION
 import org.fossify.voicerecorder.helpers.DEFAULT_SAMPLING_RATE
+import org.fossify.voicerecorder.helpers.EXTENSION_AAC
 import org.fossify.voicerecorder.helpers.EXTENSION_M4A
 import org.fossify.voicerecorder.helpers.EXTENSION_MP3
-import org.fossify.voicerecorder.helpers.EXTENSION_OGG
+import org.fossify.voicerecorder.helpers.EXTENSION_WAV
 import org.fossify.voicerecorder.helpers.SAMPLING_RATES
 import org.fossify.voicerecorder.helpers.SAMPLING_RATE_BITRATE_LIMITS
 import org.fossify.voicerecorder.models.Events
@@ -76,6 +78,7 @@ class SettingsActivity : SimpleActivity() {
         setupKeepScreenOn()
         setupUseRecycleBin()
         setupEmptyRecycleBin()
+        updateBitrateVisibility()
         updateTextColors(binding.settingsNestedScrollview)
 
         arrayOf(
@@ -182,27 +185,31 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsExtensionHolder.setOnClickListener {
             val items = arrayListOf(
                 RadioItem(EXTENSION_M4A, getString(R.string.m4a)),
-                RadioItem(EXTENSION_MP3, getString(R.string.mp3))
+                RadioItem(EXTENSION_MP3, getString(R.string.mp3)),
+                RadioItem(EXTENSION_AAC, getString(R.string.aac)),
+                RadioItem(EXTENSION_WAV, getString(R.string.wav_lossless))
             )
-
-            if (isQPlus()) {
-                items.add(RadioItem(EXTENSION_OGG, getString(R.string.ogg_opus)))
-            }
 
             RadioGroupDialog(this@SettingsActivity, items, config.extension) {
                 config.extension = it as Int
                 binding.settingsExtension.text = config.getExtensionText()
                 adjustBitrate()
                 adjustSamplingRate()
+                updateBitrateVisibility()
             }
         }
+    }
+
+    private fun updateBitrateVisibility() {
+        val isLossless = config.extension == EXTENSION_WAV
+        binding.settingsBitrateHolder.beVisibleIf(!isLossless)
     }
 
     private fun setupBitrate() {
         binding.settingsBitrate.text = getBitrateText(config.bitrate)
         binding.settingsBitrateHolder.setOnClickListener {
-            val items = BITRATES[config.extension]!!
-                .map { RadioItem(it, getBitrateText(it)) } as ArrayList
+            val bitrates = BITRATES[config.extension] ?: return@setOnClickListener
+            val items = bitrates.map { RadioItem(it, getBitrateText(it)) } as ArrayList
 
             RadioGroupDialog(this@SettingsActivity, items, config.bitrate) {
                 config.bitrate = it as Int
@@ -217,22 +224,26 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun adjustBitrate() {
-        val availableBitrates = BITRATES[config.extension]!!
-        if (!availableBitrates.contains(config.bitrate)) {
-            val currentBitrate = config.bitrate
-            val closestBitrate = availableBitrates.minByOrNull { abs(it - currentBitrate) }
-                ?: DEFAULT_BITRATE
-
-            config.bitrate = closestBitrate
-            binding.settingsBitrate.text = getBitrateText(config.bitrate)
+        val availableBitrates = BITRATES[config.extension]
+        if (availableBitrates == null || availableBitrates.contains(config.bitrate)) {
+            return
         }
+
+        val currentBitrate = config.bitrate
+        val closestBitrate = availableBitrates.minByOrNull { abs(it - currentBitrate) }
+            ?: DEFAULT_BITRATE
+
+        config.bitrate = closestBitrate
+        binding.settingsBitrate.text = getBitrateText(config.bitrate)
     }
 
     private fun setupSamplingRate() {
         binding.settingsSamplingRate.text = getSamplingRateText(config.samplingRate)
         binding.settingsSamplingRateHolder.setOnClickListener {
-            val items = getSamplingRatesArray()
-                .map { RadioItem(it, getSamplingRateText(it)) } as ArrayList
+            val samplingRates = getSamplingRatesArray()
+            if (samplingRates.isEmpty()) return@setOnClickListener
+
+            val items = samplingRates.map { RadioItem(it, getSamplingRateText(it)) } as ArrayList
 
             RadioGroupDialog(this@SettingsActivity, items, config.samplingRate) {
                 config.samplingRate = it as Int
@@ -246,24 +257,26 @@ class SettingsActivity : SimpleActivity() {
     }
 
     private fun getSamplingRatesArray(): ArrayList<Int> {
-        val baseRates = SAMPLING_RATES[config.extension]!!
-        val limits = SAMPLING_RATE_BITRATE_LIMITS[config.extension]!!
-        val filteredRates = baseRates.filter {
-            config.bitrate in limits[it]!![0]..limits[it]!![1]
-        } as ArrayList
-        return filteredRates
+        val baseRates = SAMPLING_RATES[config.extension]
+            ?: return SAMPLING_RATES[DEFAULT_EXTENSION]!!
+        // Lossless formats do not have bitrate constraints.
+        val limits = SAMPLING_RATE_BITRATE_LIMITS[config.extension] ?: return baseRates
+        return baseRates.filter { limits[it]?.let { limit -> config.bitrate in limit[0]..limit[1] } == true }
+            as ArrayList
     }
 
     private fun adjustSamplingRate() {
         val availableSamplingRates = getSamplingRatesArray()
-        if (!availableSamplingRates.contains(config.samplingRate)) {
-            if (availableSamplingRates.contains(DEFAULT_SAMPLING_RATE)) {
-                config.samplingRate = DEFAULT_SAMPLING_RATE
-            } else {
-                config.samplingRate = availableSamplingRates.last()
-            }
-            binding.settingsSamplingRate.text = getSamplingRateText(config.samplingRate)
+        if (availableSamplingRates.isEmpty() || availableSamplingRates.contains(config.samplingRate)) {
+            return
         }
+
+        config.samplingRate = if (availableSamplingRates.contains(DEFAULT_SAMPLING_RATE)) {
+            DEFAULT_SAMPLING_RATE
+        } else {
+            availableSamplingRates.last()
+        }
+        binding.settingsSamplingRate.text = getSamplingRateText(config.samplingRate)
     }
 
     private fun setupRecordAfterLaunch() {

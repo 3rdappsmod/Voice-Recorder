@@ -19,7 +19,11 @@ class Config(context: Context) : BaseConfig(context) {
             .apply()
 
     var extension: Int
-        get() = prefs.getInt(EXTENSION, EXTENSION_M4A)
+        get() {
+            val stored = prefs.getInt(EXTENSION, DEFAULT_EXTENSION)
+            // OGG used to be stored as 2 and is no longer supported, fall back to the default.
+            return if (isValidExtension(stored)) stored else DEFAULT_EXTENSION
+        }
         set(extension) = prefs.edit().putInt(EXTENSION, extension).apply()
 
     var microphoneMode: Int
@@ -53,30 +57,26 @@ class Config(context: Context) : BaseConfig(context) {
     fun getExtensionText() = context.getString(
         when (extension) {
             EXTENSION_M4A -> R.string.m4a
-            EXTENSION_OGG -> R.string.ogg_opus
-            else -> R.string.mp3
+            EXTENSION_MP3 -> R.string.mp3
+            EXTENSION_WAV -> R.string.wav
+            EXTENSION_AAC -> R.string.aac
+            else -> R.string.m4a
         }
     )
 
-    fun getExtension() = context.getString(
-        when (extension) {
-            EXTENSION_M4A -> R.string.m4a
-            EXTENSION_OGG -> R.string.ogg
-            else -> R.string.mp3
-        }
-    )
+    fun getExtension() = getExtensionText()
+
+    /** True when the selected format is encoded by a custom recorder instead of [MediaRecorder]. */
+    fun usesCustomRecorder() = extension == EXTENSION_MP3 || extension == EXTENSION_WAV
 
     @SuppressLint("InlinedApi")
     fun getOutputFormat() = when (extension) {
-        EXTENSION_OGG -> MediaRecorder.OutputFormat.OGG
+        EXTENSION_AAC -> MediaRecorder.OutputFormat.AAC_ADTS
         else -> MediaRecorder.OutputFormat.MPEG_4
     }
 
     @SuppressLint("InlinedApi")
-    fun getAudioEncoder() = when (extension) {
-        EXTENSION_OGG -> MediaRecorder.AudioEncoder.OPUS
-        else -> MediaRecorder.AudioEncoder.AAC
-    }
+    fun getAudioEncoder() = MediaRecorder.AudioEncoder.AAC
 
     var useRecycleBin: Boolean
         get() = prefs.getBoolean(USE_RECYCLE_BIN, true)
