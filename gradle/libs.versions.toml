@@ -21,6 +21,8 @@ audiorecordview = "1.0.5"
 tandroidlame = "de282c8f68"
 #AutofitTextView
 autofittextview = "0.2.1"
+#JUnit
+junit = "4.13.2"
 #Gradle
 gradlePlugins-agp = "9.4.1"
 #build
@@ -46,6 +48,8 @@ audiorecordview = { module = "com.github.Armen101:AudioRecordView", version.ref 
 tandroidlame = { module = "com.github.naveensingh:TAndroidLame", version.ref = "tandroidlame" }
 #AutofitTextView
 autofittextview = { module = "me.grantland:autofittextview", version.ref = "autofittextview" }
+#JUnit
+junit = { module = "junit:junit", version.ref = "junit" }
 [plugins]
 android = { id = "com.android.application", version.ref = "gradlePlugins-agp" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

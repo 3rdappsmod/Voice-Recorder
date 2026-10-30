@@ -182,7 +182,7 @@ class SettingsActivity : SimpleActivity() {
         binding.settingsExtensionHolder.setOnClickListener {
             val items = arrayListOf(
                 RadioItem(EXTENSION_M4A, getString(R.string.m4a)),
-                RadioItem(EXTENSION_MP3, getString(R.string.mp3_experimental))
+                RadioItem(EXTENSION_MP3, getString(R.string.mp3))
             )
 
             if (isQPlus()) {
