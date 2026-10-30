@@ -64,10 +64,19 @@ class Config(context: Context) : BaseConfig(context) {
         }
     )
 
-    fun getExtension() = getExtensionText()
+    /** File extension used for new recordings. Never contains display text or translations. */
+    fun getFileExtension() = when (extension) {
+        EXTENSION_MP3 -> "mp3"
+        EXTENSION_WAV -> "wav"
+        EXTENSION_AAC -> "aac"
+        else -> "m4a"
+    }
 
     /** True when the selected format is encoded by a custom recorder instead of [MediaRecorder]. */
     fun usesCustomRecorder() = extension == EXTENSION_MP3 || extension == EXTENSION_WAV
+
+    /** True when the format stores raw PCM and therefore has no bitrate. */
+    fun isLossless() = extension == EXTENSION_WAV
 
     @SuppressLint("InlinedApi")
     fun getOutputFormat() = when (extension) {

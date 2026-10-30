@@ -7,6 +7,7 @@ import android.media.AudioRecord
 import android.os.ParcelFileDescriptor
 import android.system.Os
 import android.system.OsConstants
+import android.util.Log
 import org.fossify.commons.extensions.showErrorToast
 import org.fossify.voicerecorder.extensions.config
 import java.io.BufferedOutputStream
@@ -15,6 +16,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.io.RandomAccessFile
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -24,13 +27,17 @@ import kotlin.math.max
 /**
  * Base class for recorders that capture raw PCM through [AudioRecord] and encode it themselves.
  *
- * Capturing happens on a dedicated thread, so [start] never blocks the caller. [stop] is idempotent
- * and waits for the capture thread to terminate, which guarantees no more bytes are written once it
- * returns. Subclasses write through [output] and can patch a header with [rewriteHeader] when the
- * recording is finished.
+ * Capturing runs on a dedicated thread, so [start] never blocks the caller. All writes to the
+ * output happen on that thread: when [release] is called the stream is only closed once the thread
+ * has finished, either on the calling thread or, if the device is slow to stop capturing, from the
+ * capture thread itself. This guarantees that no bytes are written after the file is finalized.
+ *
+ * Subclasses write through [output] and can patch a header with [rewriteHeader] from
+ * [finishEncoding], which is invoked exactly once, right before the streams are closed.
  */
 abstract class PcmRecorder(protected val context: Context) : Recorder {
     companion object {
+        private const val TAG = "PcmRecorder"
         private const val PAUSE_POLL_INTERVAL_MS = 50L
         private const val THREAD_JOIN_TIMEOUT_MS = 5000L
         private const val OUTPUT_BUFFER_SIZE = 64 * 1024
@@ -39,7 +46,6 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
 
     protected val sampleRate = context.config.samplingRate
     protected val channels = 1
-    protected val bytesPerSample = 2
 
     protected val minBufferSize = AudioRecord.getMinBufferSize(
         sampleRate,
@@ -51,14 +57,17 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
     private val isPaused = AtomicBoolean(false)
     private val isStopped = AtomicBoolean(false)
     private val isReleased = AtomicBoolean(false)
+    private val isFinalized = AtomicBoolean(false)
+    private val finalizedLatch = CountDownLatch(1)
     private val amplitude = AtomicInteger(0)
     private val peakAmplitude = AtomicInteger(0)
     private val capturedSamples = AtomicLong(0)
 
+    @Volatile
+    private var bufferedStream: BufferedOutputStream? = null
     private var outputPath: String? = null
     private var headerPath: String? = null
     private var fileDescriptor: ParcelFileDescriptor? = null
-    private var bufferedStream: BufferedOutputStream? = null
     private var captureThread: Thread? = null
 
     @SuppressLint("MissingPermission")
@@ -91,10 +100,10 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
     /** Encodes and writes [sampleCount] samples from [pcm]. */
     protected abstract fun encode(pcm: ShortArray, sampleCount: Int)
 
-    /** Called after the capture thread finished, before the streams are closed. */
+    /** Finalizes the stream, for example by writing a container header. Runs once. */
     protected open fun finishEncoding() {}
 
-    /** Called once the recorder is released, even if the capture failed. */
+    /** Releases encoder resources. Runs once, even if capturing failed. */
     protected open fun releaseEncoder() {}
 
     override fun setOutputFile(path: String) {
@@ -123,8 +132,7 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
                 "Unable to start audio recording"
             }
         } catch (e: Exception) {
-            closeStreams()
-            releaseEncoder()
+            finalizeRecording()
             throw e
         }
 
@@ -157,6 +165,12 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
             if (!isStopped.get()) {
                 context.showErrorToast(e)
             }
+        } finally {
+            // When release() gave up waiting for this thread, finalizing here keeps all writes
+            // on the same thread and still closes the file.
+            if (isReleased.get()) {
+                finalizeRecording()
+            }
         }
     }
 
@@ -186,29 +200,15 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
 
         stop()
 
-        try {
-            finishEncoding()
-            flushOutput()
-        } catch (e: IOException) {
-            e.printStackTrace()
-        } catch (e: Exception) {
-            context.showErrorToast(e)
-        } finally {
-            try {
-                releaseEncoder()
-            } catch (ignored: Exception) {
-            }
+        if (captureThread == null) {
+            finalizeRecording()
+        }
 
-            closeStreams()
-            try {
-                fileDescriptor?.close()
-            } catch (ignored: IOException) {
-            }
-            fileDescriptor = null
-            try {
-                audioRecord.release()
-            } catch (ignored: Exception) {
-            }
+        // Wait for the file to be closed before the caller scans or reads it.
+        try {
+            finalizedLatch.await(THREAD_JOIN_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
         }
     }
 
@@ -239,6 +239,41 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
         return path != null && rewriteFileHeader(path, bytes)
     }
 
+    protected fun finalizeRecording() {
+        if (!isFinalized.compareAndSet(false, true)) {
+            return
+        }
+
+        try {
+            finishEncoding()
+            bufferedStream?.flush()
+        } catch (e: IOException) {
+            Log.e(TAG, "Failed to finalize the recording", e)
+        } catch (e: Exception) {
+            context.showErrorToast(e)
+        } finally {
+            try {
+                releaseEncoder()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to release the encoder", e)
+            }
+
+            closeStreams()
+            try {
+                fileDescriptor?.close()
+            } catch (ignored: IOException) {
+            }
+            fileDescriptor = null
+            try {
+                audioRecord.release()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to release the audio recorder", e)
+            } finally {
+                finalizedLatch.countDown()
+            }
+        }
+    }
+
     private fun rewriteFileHeader(path: String, bytes: ByteArray): Boolean {
         return try {
             RandomAccessFile(File(path), "rw").use { file ->
@@ -247,7 +282,7 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
             }
             true
         } catch (e: IOException) {
-            android.util.Log.e("PcmRecorder", "Failed to rewrite header through $path", e)
+            Log.e(TAG, "Failed to rewrite the header through $path", e)
             false
         }
     }
@@ -261,20 +296,22 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
             Os.lseek(fd, endPosition, OsConstants.SEEK_SET)
             true
         } catch (e: Exception) {
-            android.util.Log.e("PcmRecorder", "Failed to rewrite header through the descriptor", e)
+            Log.e(TAG, "Failed to rewrite the header through the descriptor", e)
             false
         }
     }
 
     private fun stopCaptureThread() {
         val thread = captureThread ?: return
+        var finished = false
         try {
             thread.join(THREAD_JOIN_TIMEOUT_MS)
+            finished = !thread.isAlive
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
         }
 
-        if (!thread.isAlive) {
+        if (finished) {
             captureThread = null
         }
     }
@@ -293,7 +330,7 @@ abstract class PcmRecorder(protected val context: Context) : Recorder {
         try {
             bufferedStream?.close()
         } catch (e: IOException) {
-            e.printStackTrace()
+            Log.e(TAG, "Failed to close the output stream", e)
         }
         bufferedStream = null
     }

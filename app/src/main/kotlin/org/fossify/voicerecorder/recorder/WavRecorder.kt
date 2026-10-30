@@ -1,6 +1,7 @@
 package org.fossify.voicerecorder.recorder
 
 import android.content.Context
+import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -12,6 +13,7 @@ import java.nio.ByteOrder
  */
 class WavRecorder(context: Context) : PcmRecorder(context) {
     companion object {
+        private const val TAG = "WavRecorder"
         private const val BYTES_PER_SAMPLE = WavHeader.BITS_PER_SAMPLE / 8
     }
 
@@ -36,10 +38,14 @@ class WavRecorder(context: Context) : PcmRecorder(context) {
     override fun finishEncoding() {
         if (!headerWritten) return
 
-        val dataLength = (recordedSamples * BYTES_PER_SAMPLE)
-            .coerceAtMost(Int.MAX_VALUE.toLong())
-            .toInt()
-        rewriteHeader(WavHeader.build(sampleRate, channels, dataLength))
+        val dataLength = recordedSamples * BYTES_PER_SAMPLE
+        if (dataLength > WavHeader.MAX_DATA_LENGTH) {
+            // RIFF stores 32 bit sizes, so longer recordings cannot be described by the header.
+            Log.w(TAG, "Recording is too long for a WAV header: $dataLength bytes")
+        }
+
+        val headerLength = dataLength.coerceAtMost(WavHeader.MAX_DATA_LENGTH).toInt()
+        rewriteHeader(WavHeader.build(sampleRate, channels, headerLength))
     }
 
     override fun releaseEncoder() {

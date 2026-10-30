@@ -106,7 +106,7 @@ class RecorderService : Service() {
         }
 
         val recordingFolder = defaultFolder.absolutePath
-        recordingPath = "$recordingFolder/${getFormattedFilename()}.${config.getExtension()}"
+        recordingPath = "$recordingFolder/${getFormattedFilename()}.${config.getFileExtension()}"
         resultUri = null
 
         try {
@@ -164,10 +164,18 @@ class RecorderService : Service() {
         amplitudeTimer.cancel()
         status = RECORDING_STOPPED
 
-        recorder?.apply {
+        val currentRecorder = recorder
+        recorder = null
+        if (currentRecorder == null) {
+            return
+        }
+
+        // Finalizing a recording waits for the capture thread and rewrites the file header, so it
+        // must not run on the main thread.
+        ensureBackgroundThread {
             try {
-                stop()
-                release()
+                currentRecorder.stop()
+                currentRecorder.release()
             } catch (
                 @Suppress(
                     "TooGenericExceptionCaught",
@@ -180,12 +188,9 @@ class RecorderService : Service() {
                 e.printStackTrace()
             }
 
-            ensureBackgroundThread {
-                scanRecording()
-                EventBus.getDefault().post(Events.RecordingCompleted())
-            }
+            scanRecording()
+            EventBus.getDefault().post(Events.RecordingCompleted())
         }
-        recorder = null
     }
 
     private fun cancelRecording() {
@@ -193,24 +198,25 @@ class RecorderService : Service() {
         amplitudeTimer.cancel()
         status = RECORDING_STOPPED
 
-        recorder?.apply {
+        val currentRecorder = recorder
+        recorder = null
+        ensureBackgroundThread {
             try {
-                stop()
-                release()
+                currentRecorder?.stop()
+                currentRecorder?.release()
             } catch (ignored: Exception) {
             }
-        }
 
-        recorder = null
-        if (isRPlus()) {
-            val recordingUri = createDocumentUriUsingFirstParentTreeUri(recordingPath)
-            DocumentsContract.deleteDocument(contentResolver, recordingUri)
-        } else {
-            File(recordingPath).delete()
-        }
+            if (isRPlus()) {
+                val recordingUri = createDocumentUriUsingFirstParentTreeUri(recordingPath)
+                DocumentsContract.deleteDocument(contentResolver, recordingUri)
+            } else {
+                File(recordingPath).delete()
+            }
 
-        EventBus.getDefault().post(Events.RecordingCompleted())
-        stopSelf()
+            EventBus.getDefault().post(Events.RecordingCompleted())
+            stopSelf()
+        }
     }
 
     private fun broadcastRecorderInfo() {

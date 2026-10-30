@@ -17,13 +17,16 @@ class MediaRecorderWrapper(val context: Context) : Recorder {
         setAudioSamplingRate(context.config.samplingRate)
     }
 
+    private var duplicateDescriptor: ParcelFileDescriptor? = null
+
     override fun setOutputFile(path: String) {
         recorder.setOutputFile(path)
     }
 
     override fun setOutputFile(parcelFileDescriptor: ParcelFileDescriptor) {
-        val pFD = ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor)
-        recorder.setOutputFile(pFD.fileDescriptor)
+        val duplicate = ParcelFileDescriptor.dup(parcelFileDescriptor.fileDescriptor)
+        duplicateDescriptor = duplicate
+        recorder.setOutputFile(duplicate.fileDescriptor)
     }
 
     override fun prepare() {
@@ -49,7 +52,12 @@ class MediaRecorderWrapper(val context: Context) : Recorder {
     }
 
     override fun release() {
-        recorder.release()
+        try {
+            recorder.release()
+        } finally {
+            duplicateDescriptor?.close()
+            duplicateDescriptor = null
+        }
     }
 
     override fun getMaxAmplitude(): Int {

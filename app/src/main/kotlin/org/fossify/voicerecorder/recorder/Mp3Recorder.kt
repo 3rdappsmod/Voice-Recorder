@@ -4,7 +4,6 @@ import android.content.Context
 import com.naman14.androidlame.AndroidLame
 import com.naman14.androidlame.LameBuilder
 import org.fossify.voicerecorder.extensions.config
-import java.io.IOException
 
 /**
  * Records MP3 with the LAME encoder.
@@ -61,9 +60,8 @@ class Mp3Recorder(context: Context) : PcmRecorder(context) {
     override fun releaseEncoder() {
         try {
             encoder?.close()
-        } catch (e: IOException) {
-            e.printStackTrace()
+        } catch (e: Exception) {
+            android.util.Log.e("Mp3Recorder", "Failed to close the encoder", e)
         }
         encoder = null
-    }
-}
+    }}

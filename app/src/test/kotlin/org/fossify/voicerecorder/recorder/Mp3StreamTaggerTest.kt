@@ -25,9 +25,46 @@ class Mp3StreamTaggerTest {
         assertEquals(0x0F, readInt(tag, 25))
         assertEquals(9, readInt(tag, 29))
         assertEquals(10 * frameLength, readInt(tag, 33))
-        assertEquals(0, tag[21 + 8 + 4 + 4 + 100].toInt())
-        assertEquals("LAME", tag.copyOfRange(141, 145).toString(Charsets.US_ASCII))
-        assertEquals(10 * frameLength, readInt(tag, 141 + 9 + 1 + 1 + 4 + 2 + 2 + 1 + 1 + 3 + 1 + 1 + 2))
+        assertEquals(55, readInt(tag, 137))
+        assertEquals("LAME3.100", tag.copyOfRange(141, 150).toString(Charsets.US_ASCII))
+        assertEquals(0x01, tag[150].toInt())
+        // Mono raises LAME's lowpass by 1.5 and caps it at 20500 Hz, i.e. 205 in 100 Hz units.
+        assertEquals(205, tag[151].toInt() and 0xFF)
+        assertEquals(10 * frameLength, readInt(tag, 169))
+    }
+
+    @Test
+    fun tocIsMonotonicAndCoversWholeStream() {
+        val tagger = Mp3StreamTagger()
+        val stream = buildStream(frames = 64)
+        tagger.write(stream, stream.size)
+
+        val tag = tagger.buildTag(recordedSamples = 64L * samplesPerFrame, peakAmplitude = 0)!!
+
+        val toc = tag.copyOfRange(37, 137).map { it.toInt() and 0xFF }
+        assertEquals(0, toc.first())
+        assertEquals(255, toc.last())
+        for (i in 1 until toc.size) {
+            assert(toc[i] >= toc[i - 1]) { "TOC must not decrease at $i" }
+        }
+    }
+
+    @Test
+    fun writesEncoderDelayAndPaddingForExactDuration() {
+        val tagger = Mp3StreamTagger()
+        val stream = buildStream(frames = 10)
+        tagger.write(stream, stream.size)
+
+        // Ten frames decode to 11520 samples; 9216 samples were captured. LAME's delay is 576
+        // samples, and the remainder must be marked as padding so players report the real length.
+        val tag = tagger.buildTag(recordedSamples = 8L * samplesPerFrame, peakAmplitude = 0)!!
+
+        val delay = ((tag[162].toInt() and 0xFF) shl 4) or ((tag[163].toInt() and 0xFF) ushr 4)
+        val padding = ((tag[163].toInt() and 0x0F) shl 8) or (tag[164].toInt() and 0xFF)
+        assertEquals(576, delay)
+        // The tag frame is excluded from the audio frame count: 9 data frames hold 10368 samples,
+        // the capture stopped at 9216, and the 576 sample delay leaves 576 samples of padding.
+        assertEquals(9 * samplesPerFrame - 8 * samplesPerFrame - 576, padding)
     }
 
     @Test
@@ -59,6 +96,15 @@ class Mp3StreamTaggerTest {
     }
 
     @Test
+    fun rejectsSingleFrameStream() {
+        val tagger = Mp3StreamTagger()
+        val stream = buildStream(frames = 1)
+        tagger.write(stream, stream.size)
+
+        assertNull(tagger.buildTag(recordedSamples = samplesPerFrame.toLong(), peakAmplitude = 0))
+    }
+
+    @Test
     fun handlesChunkBoundaries() {
         val tagger = Mp3StreamTagger()
         val stream = buildStream(frames = 12)
@@ -76,6 +122,28 @@ class Mp3StreamTaggerTest {
         val tag = tagger.buildTag(recordedSamples = 12L * samplesPerFrame, peakAmplitude = 8000)
         assertNotNull(tag)
         assertEquals(11, readInt(tag!!, 29))
+    }
+
+    @Test
+    fun producesSameBytesRegardlessOfChunking() {
+        val stream = buildStream(frames = 20)
+        val single = Mp3StreamTagger().apply { write(stream, stream.size) }
+            .buildTag(20L * samplesPerFrame, 1000)
+
+        for (chunkSize in intArrayOf(1, 2, 5, 13, 97)) {
+            val chunkedTagger = Mp3StreamTagger()
+            var position = 0
+            while (position < stream.size) {
+                val length = minOf(chunkSize, stream.size - position)
+                chunkedTagger.write(stream.copyOfRange(position, position + length), length)
+                position += length
+            }
+            val chunked = chunkedTagger.buildTag(20L * samplesPerFrame, 1000)
+
+            assertNotNull(single)
+            assertNotNull(chunked)
+            assertEquals(single!!.toList(), chunked!!.toList())
+        }
     }
 
     private fun buildStream(frames: Int, emptyFirstPayload: Boolean = true): ByteArray {

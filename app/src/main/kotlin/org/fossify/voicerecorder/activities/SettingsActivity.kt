@@ -258,11 +258,12 @@ class SettingsActivity : SimpleActivity() {
 
     private fun getSamplingRatesArray(): ArrayList<Int> {
         val baseRates = SAMPLING_RATES[config.extension]
-            ?: return SAMPLING_RATES[DEFAULT_EXTENSION]!!
+            ?: return ArrayList(SAMPLING_RATES[DEFAULT_EXTENSION].orEmpty())
         // Lossless formats do not have bitrate constraints.
-        val limits = SAMPLING_RATE_BITRATE_LIMITS[config.extension] ?: return baseRates
-        return baseRates.filter { limits[it]?.let { limit -> config.bitrate in limit[0]..limit[1] } == true }
-            as ArrayList
+        val limits = SAMPLING_RATE_BITRATE_LIMITS[config.extension] ?: return ArrayList(baseRates)
+        return ArrayList(
+            baseRates.filter { limits[it]?.let { limit -> config.bitrate in limit[0]..limit[1] } == true }
+        )
     }
 
     private fun adjustSamplingRate() {

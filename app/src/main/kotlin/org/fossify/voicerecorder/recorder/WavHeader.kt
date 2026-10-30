@@ -12,6 +12,12 @@ internal object WavHeader {
     const val BITS_PER_SAMPLE = 16
     const val HEADER_SIZE = 44
 
+    /**
+     * Largest value the 32 bit RIFF size fields can hold. Files longer than this can still be
+     * written, but the header cannot describe them accurately.
+     */
+    const val MAX_DATA_LENGTH = 0xFFFFFFFFL - 36L
+
     private const val BYTES_PER_SAMPLE = BITS_PER_SAMPLE / 8
     private const val AUDIO_FORMAT_PCM = 1
     private const val RIFF_FORMAT_SIZE = 36
